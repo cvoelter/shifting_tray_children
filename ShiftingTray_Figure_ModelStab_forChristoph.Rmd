@@ -1,0 +1,250 @@
+---
+title: "Untitled"
+author: "Eva Reindl"
+date: "19 11 2020"
+output: word_document
+---
+
+#INFERENTIAL STATISTICS TRIAL BY TRIAL DATA
+
+```{r}
+#PREPARE
+R.Version()
+rm(list=ls())#removes any other items in your workspace
+
+library(lme4)
+library(tidyverse)
+source("./functions/diagnostic_fcns.r")
+source("./functions/glmm_stability.r")
+source("./functions/boot_glmm.r")
+source("./functions/drop1_para.r")
+
+```
+
+```{r}
+#LOAD DATA
+#setwd("C:\\")#sets the working directory, this is where your datafile is
+TrayTask <-read.csv("data/Jess_FinalData.csv",header=TRUE, sep = ";")
+```
+
+```{r}
+#OVERVIEW
+str(TrayTask)
+
+#recode variables
+TrayTask$Age_group <- as.factor(TrayTask$Age)#this converts a variable classified as continuous into a categorical variable
+levels(TrayTask$Age_group)
+
+str(TrayTask)#check whether changes were implemented and if there are any outstanding issues
+```
+
+## Postswitch Phase
+create a subset for postswitch data
+```{r}
+postswitch<-subset(TrayTask, Pre_or_postswitch == "post")
+
+postswitch$z.age=as.vector(scale(postswitch$Age_months))#transform age to mean of 0 and SD of 1
+mean(postswitch$z.age)#check whether it has worked
+sd(postswitch$z.age)
+```
+```{r eval=FALSE, echo=FALSE}
+
+postswitch$z.trial=scale(postswitch$Trialnr)
+str(postswitch)
+summary(postswitch)
+xx.fe.re=fe.re.tab(fe.model="Success ~ z.age + Relevant_dimension + Condition + 
+                      z.trial ",
+                   re="(1|Subject_ID)", data=postswitch)
+xx.fe.re$summary
+
+
+```
+```{r}
+contr<-glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=10000000))
+post.mod<-glmer(Success ~ (z.age+I(z.age^2)) * Relevant_dimension * Condition + 
+                      z.trial + 
+                      (1+z.trial|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+summary(post.mod)
+
+drop1(post.mod, test = "Chisq")
+
+```
+
+
+
+```{r}
+contr<-glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=10000000))
+post.mod<-glmer(Success ~ ((z.age+I(z.age^2)) : Relevant_dimension : Condition)^2 + 
+                      z.trial + 
+                      (1+z.trial|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+summary(post.mod)
+
+drop1(post.mod, test = "Chisq")
+
+```
+
+
+
+```{r}
+contr<-glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=10000000))
+post.mod<-glmer(Success ~ (z.age+I(z.age^2))*Condition + Relevant_dimension+
+                      z.trial + 
+                      (1+z.trial|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+summary(post.mod)
+
+drop1(post.mod, test = "Chisq")
+
+```
+
+```{r}
+contr<-glmerControl(optimizer="bobyqa", optCtrl=list(maxfun=10000000))
+post.mod<-glmer(Success ~ (z.age+I(z.age^2)) + Relevant_dimension + Condition + 
+                      z.trial + 
+                      (1+z.trial|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+summary(post.mod)
+
+drop1(post.mod, test = "Chisq")
+
+```
+
+
+
+
+
+######################Stop here########################
+
+Assess model diagnostics
+1) Absence of collinearity
+```{r}
+post.mod.lm<-lm(Success ~ I(z.age^2) + Relevant_dimension + Condition + Trialnr, data=postswitch)
+library(car)
+vif(post.mod.lm)
+```
+
+#####Model stability
+???
+
+Testing the full model
+```{r}
+post.mod.null<-glmer(Success ~ 1 + Trialnr + (1|Subject_ID), family = binomial, data=postswitch, control=contr)
+
+anova(post.mod.null, post.mod, test="Chisq")
+
+summary(post.mod)
+```
+
+
+Explore significance of fixed effects:
+1. 3-way-interaction
+```{r}
+post.mod.nointer<-glmer(Success ~ I(z.age^2) + Relevant_dimension + Condition + 
+                      I(z.age^2):Condition + 
+                      Trialnr + 
+                      (1|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+anova(post.mod.nointer, post.mod, test="Chisq")#n.s.
+```
+
+We then create a new full model without the three-way interaction.
+```{r}
+post.mod<-glmer(Success ~ I(z.age^2) + Relevant_dimension + Condition + 
+                      I(z.age^2):Condition + 
+                      Trialnr + 
+                      (1|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+anova(post.mod.null, post.mod, test="Chisq") # this  explains the data significantly better than a null model
+```
+
+test for effect of interactions
+1. age:condition
+```{r}
+post.mod.noagecond<-glmer(Success ~ I(z.age^2) + Relevant_dimension + Condition + 
+                      Trialnr + 
+                      (1|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+anova(post.mod.noagecond, post.mod, test="Chisq")
+```
+
+We now formulate a new full model, without any of the interactions tested above.
+```{r}
+library(lme4)
+post.mod<-glmer(Success ~ z.age+I(z.age^2) + Relevant_dimension + Condition + 
+                      Trialnr + 
+                      (1|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+summary(post.mod)
+
+anova(post.mod.null, post.mod, test="Chisq")
+```
+
+Test of significance of terms
+1)effect of age?
+```{r}
+post.mod.noage<-glmer(Success ~ Relevant_dimension + Condition + 
+                      Trialnr + 
+                      (1|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+anova(post.mod.noage, post.mod, test="Chisq")
+```
+
+
+
+2)effect of condition?
+```{r}
+post.mod.nocond<-glmer(Success ~ I(z.age^2) + Relevant_dimension + 
+                      Trialnr + 
+                      (1|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+anova(post.mod.nocond, post.mod, test="Chisq")
+```
+
+
+
+3)effect of relevant dimension?
+```{r}
+post.mod.noreldim<-glmer(Success ~ I(z.age^2) +  Condition + 
+                      Trialnr + 
+                      (1|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+anova(post.mod.noreldim, post.mod, test="Chisq")
+```
+
+
+
+4)effect of trial number?
+```{r}
+post.mod.notrialn<-glmer(Success ~ I(z.age^2) + Relevant_dimension + Condition + 
+                      (1|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+anova(post.mod.notrialn, post.mod, test="Chisq")
+```
+
+
+No more terms will be removed from the model, so we have found our final model.
+```{r}
+#effect sizes/CIs
+se <- sqrt(diag(vcov(post.mod)))
+# table of estimates with 95% CI
+(tab <- cbind(Est = fixef(post.mod), 
+              LL = fixef(post.mod) - 1.96 * se, 
+              UL = fixef(post.mod) + 1.96 * se))
+
+#Odds ratios and their confidence intervals
+exp(tab)
+
+
+confint.merMod(object=post.mod)
+```
+
+Linear effect of age?
+```{r}
+post.mod1<-glmer(Success ~ z.age^2 + Relevant_dimension + Condition + 
+                      Trialnr + 
+                      (1|Subject_ID), family = binomial, data=postswitch,control=contr)
+
+summary(post.mod1)
+```
